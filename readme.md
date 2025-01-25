@@ -14,7 +14,7 @@ Easily set up Docker and Portainer on your Raspberry Pi with a single script.
 Run this one-liner to install everything automatically:
 
 ```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/besoeasy/raspberry-pi-docker-portainer/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/besoeasy/raspberry-pi-docker-portainer/refs/heads/main/install.sh | bash
 ```
 
 ## Access Portainer
