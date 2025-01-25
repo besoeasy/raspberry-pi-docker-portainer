@@ -3,50 +3,57 @@
 # Exit script on error
 set -e
 
-# Update system packages
-echo "Updating system packages..."
-sudo apt update && sudo apt upgrade -y
+echo "Starting system update and Docker environment setup..."
+echo "-----------------------------------------------------"
 
-# Install prerequisites
-echo "Installing prerequisites..."
-sudo apt install -y \
-    apt-transport-https \
-    ca-certificates \
-    curl \
-    software-properties-common
+# Update system packages
+echo "1. Updating system packages..."
+sudo apt update && sudo apt upgrade -y
+echo "System packages updated successfully."
+
+# Install prerequisites including jq for JSON parsing
+echo "2. Installing prerequisites (curl, jq)..."
+sudo apt install -y curl jq
+echo "Prerequisites installed successfully."
 
 # Check if Docker is installed
 if ! command -v docker &> /dev/null; then
-    echo "Installing Docker..."
+    echo "3. Docker not found. Installing Docker..."
     curl -fsSL https://get.docker.com -o get-docker.sh
     sudo sh get-docker.sh
     rm get-docker.sh
+    echo "Docker installed successfully. Version: $(docker --version)."
 else
-    echo "Docker is already installed."
+    echo "3. Docker is already installed. Version: $(docker --version)."
 fi
 
-# Add the current user to the Docker group
-echo "Adding user $(whoami) to the docker group..."
+# Add current user to Docker group to avoid sudo
+echo "4. Adding user '$(whoami)' to the Docker group..."
 sudo usermod -aG docker $(whoami)
+echo "User '$(whoami)' added to Docker group. Note: A reboot or re-login is required for this change to take effect."
 
 # Install Docker Compose (standalone)
-echo "Installing Docker Compose (standalone)..."
-DOCKER_COMPOSE_VERSION=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep tag_name | cut -d '"' -f 4)
-sudo curl -L "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+echo "5. Installing Docker Compose..."
+DOCKER_COMPOSE_VERSION=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | jq -r '.tag_name')
+ARCH=$(uname -m)
+if [ "$ARCH" = "aarch64" ]; then
+    ARCH="arm64"
+elif [ "$ARCH" = "x86_64" ]; then
+    ARCH="x86_64"
+fi
+sudo curl -L "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-$(uname -s)-$ARCH" -o /usr/local/bin/docker-compose
 sudo chmod +x /usr/local/bin/docker-compose
+echo "Docker Compose installed successfully. Version: $(docker-compose --version)."
 
-# Check if Portainer is installed
+# Deploy/Update Portainer
+echo "6. Setting up Portainer (Docker management GUI)..."
 if sudo docker ps -a --format '{{.Names}}' | grep -q "^portainer$"; then
-    echo "Portainer is already installed. Checking for updates..."
-    
-    # Get the latest Portainer version
+    echo "Checking for Portainer updates..."
     LATEST_PORTAINER_VERSION=$(curl -s https://hub.docker.com/v2/repositories/portainer/portainer-ce/tags?page_size=1 | jq -r '.results[0].name')
-    
-    # Get the currently installed Portainer version
-    CURRENT_PORTAINER_VERSION=$(sudo docker inspect portainer | jq -r '.[0].Config.Image' | cut -d ':' -f 2)
+    CURRENT_PORTAINER_VERSION=$(sudo docker inspect portainer &>/dev/null && sudo docker inspect portainer | jq -r '.[0].Config.Image' | cut -d ':' -f 2 || echo "unknown")
 
     if [ "$LATEST_PORTAINER_VERSION" != "$CURRENT_PORTAINER_VERSION" ]; then
-        echo "A new version of Portainer is available. Updating to version $LATEST_PORTAINER_VERSION..."
+        echo "Updating Portainer from v$CURRENT_PORTAINER_VERSION to v$LATEST_PORTAINER_VERSION..."
         sudo docker stop portainer
         sudo docker rm portainer
         sudo docker pull portainer/portainer-ce:$LATEST_PORTAINER_VERSION
@@ -57,12 +64,12 @@ if sudo docker ps -a --format '{{.Names}}' | grep -q "^portainer$"; then
           -v /var/run/docker.sock:/var/run/docker.sock \
           -v portainer_data:/data \
           portainer/portainer-ce:$LATEST_PORTAINER_VERSION
-        echo "Portainer has been updated to version $LATEST_PORTAINER_VERSION."
+        echo "Portainer updated to v$LATEST_PORTAINER_VERSION successfully."
     else
-        echo "Portainer is already up to date (version $CURRENT_PORTAINER_VERSION)."
+        echo "Portainer is already up to date (v$CURRENT_PORTAINER_VERSION)."
     fi
 else
-    echo "Portainer is not installed. Installing the latest version..."
+    echo "Installing Portainer for the first time..."
     sudo docker volume create portainer_data
     sudo docker run -d \
       --name=portainer \
@@ -71,10 +78,11 @@ else
       -v /var/run/docker.sock:/var/run/docker.sock \
       -v portainer_data:/data \
       portainer/portainer-ce:latest
-    echo "Portainer has been successfully installed!"
+    echo "Portainer installed successfully. Access it at: http://$(hostname -I | awk '{print $1}'):9000"
 fi
 
-# Final message
-echo "Docker and Portainer setup is complete!"
-echo "You can access Portainer at: http://<your-pi-ip>:9000"
-echo "Please reboot your system to apply changes."
+# Final instructions
+echo "-----------------------------------------------------"
+echo "Setup completed successfully!"
+echo "To access Portainer, visit: http://$(hostname -I | awk '{print $1}'):9000"
+echo "Please reboot your system or log out and back in for Docker group changes to take effect."
